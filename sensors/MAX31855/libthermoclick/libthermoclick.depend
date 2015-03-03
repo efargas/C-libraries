@@ -1,0 +1,29 @@
+# depslib dependency file v1.0
+947195000 source:/home/ubuntu/Erik/MikroE/ThermoClick/Librerias/BBB/libthermoclick/main.c
+	<stdint.h>
+	<unistd.h>
+	<stdio.h>
+	<stdlib.h>
+	<fcntl.h>
+	<sys/ioctl.h>
+	<linux/spi/spidev.h>
+
+947196982 source:/home/ubuntu/Erik/MikroE/ThermoClick/Librerias/BBB/libthermoclick/example.c
+	"main.h"
+	<stdint.h>
+	<unistd.h>
+	<stdio.h>
+	<stdlib.h>
+
+947197937 /home/ubuntu/Erik/MikroE/ThermoClick/Librerias/BBB/libthermoclick/main.h
+	<stdint.h>
+
+1424853223 source:/home/ubuntu/Erik/MikroE/ThermoClick/Librerias/BBB/libthermoclick/libthermoclick.c
+	<stdint.h>
+	<unistd.h>
+	<stdio.h>
+	<stdlib.h>
+	<fcntl.h>
+	<sys/ioctl.h>
+	<linux/spi/spidev.h>
+

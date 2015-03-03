@@ -1,0 +1,21 @@
+# depslib dependency file v1.0
+1425379716 source:/home/ubuntu/Erik/MikroE/AccelClick/Librerias/BBB/ACCEL_CLICK/main.c
+	<stdint.h>
+	<unistd.h>
+	<stdio.h>
+	<stdlib.h>
+	<time.h>
+	<string.h>
+	<fcntl.h>
+	<sys/ioctl.h>
+	<linux/spi/spidev.h>
+
+1425287117 source:/home/ubuntu/Erik/MikroE/AccelClick/Librerias/BBB/ACCEL_CLICK/adxl345.c
+	<stdio.h>
+	<fcntl.h>
+	<string.h>
+	<stdint.h>
+	<unistd.h>
+	<sys/ioctl.h>
+	<linux/spi/spidev.h>
+
