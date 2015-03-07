@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1425379716 source:/home/ubuntu/Erik/MikroE/AccelClick/Librerias/BBB/ACCEL_CLICK/main.c
+1425696480 source:/home/ubuntu/Erik/MikroE/AccelClick/Librerias/BBB/ACCEL_CLICK/main.c
 	<stdint.h>
 	<unistd.h>
 	<stdio.h>

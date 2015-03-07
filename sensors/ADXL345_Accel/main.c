@@ -2,7 +2,8 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+//#include <time.h>
+#include "/usr/include/time.h"
 #include <string.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -19,15 +20,15 @@
 //Registers.
 #define ADXL345_DEVID_REG          0x00
 #define ADXL345_THRESH_TAP_REG     0x1D
-#define ADXL345_OFSX_REG           0x1E
-#define ADXL345_OFSY_REG           0x1F
-#define ADXL345_OFSZ_REG           0x20
+#define ADXL345_OFSX_REG           0x1E  //8 bits twos complement format 15.6mg/LSB.
+#define ADXL345_OFSY_REG           0x1F  //8 bits twos complement format 15.6mg/LSB.
+#define ADXL345_OFSZ_REG           0x20  //8 bits twos complement format 15.6mg/LSB.
 #define ADXL345_DUR_REG            0x21
 #define ADXL345_LATENT_REG         0x22
 #define ADXL345_WINDOW_REG         0x23
-#define ADXL345_THRESH_ACT_REG     0x24
-#define ADXL345_THRESH_INACT_REG   0x25
-#define ADXL345_TIME_INACT_REG     0x26
+#define ADXL345_THRESH_ACT_REG     0x24  //8 bits unsigned 62.5mg/LSB Threshold value for detetcting activity.
+#define ADXL345_THRESH_INACT_REG   0x25  //8 bits unsigned 62.5mg/LSB Threshold value for detetcting inactivity.
+#define ADXL345_TIME_INACT_REG     0x26  //8 bits unsigned amount of time that acceleration must be less than THRESH_INACT for declare inactivity. 1sec/LSB.
 #define ADXL345_ACT_INACT_CTL_REG  0x27
 #define ADXL345_THRESH_FF_REG      0x28
 #define ADXL345_TIME_FF_REG        0x29
@@ -49,24 +50,34 @@
 #define ADXL345_FIFO_STATUS        0x39
 
 //Data rate codes.
-#define ADXL345_3200HZ      0x0F
-#define ADXL345_1600HZ      0x0E
-#define ADXL345_800HZ       0x0D
-#define ADXL345_400HZ       0x0C
-#define ADXL345_200HZ       0x0B
-#define ADXL345_100HZ       0x0A
-#define ADXL345_50HZ        0x09
-#define ADXL345_25HZ        0x08
-#define ADXL345_12HZ5       0x07
-#define ADXL345_6HZ25       0x06
+#define ADXL345_3200HZ             0x0F
+#define ADXL345_1600HZ             0x0E
+#define ADXL345_800HZ              0x0D
+#define ADXL345_400HZ              0x0C
+#define ADXL345_200HZ              0x0B
+#define ADXL345_100HZ              0x0A
+#define ADXL345_50HZ               0x09
+#define ADXL345_25HZ               0x08
+#define ADXL345_12HZ5              0x07
+#define ADXL345_6HZ25              0x06
 
-#define ADXL345_SPI_READ    0x80
-#define ADXL345_SPI_WRITE   0x00
-#define ADXL345_MULTI_BYTE  0x60
+#define ADXL345_DATA_FORMAT_BASE   0x08
+//Data ranges
+#define ADXL345_16G                0x03
+#define ADXL345_8G                 0x02
+#define ADXL345_4G                 0x01
+#define ADXL345_2G                 0x00
 
-#define ADXL345_X           0x00
-#define ADXL345_Y           0x01
-#define ADXL345_Z           0x02
+#define ADXL345_EN_MM              0x08  //Enable measurement mode
+#define ADXL345_DIS_MM             0xF7  //Disable measurement mode
+#define ADXL345_SPI_READ           0x80
+#define ADXL345_SPI_WRITE          0x00
+#define ADXL345_MULTI_BYTE         0x40
+#define ADXL345_DUMMY              0x00
+
+#define ADXL345_X                  0x00
+#define ADXL345_Y                  0x01
+#define ADXL345_Z                  0x02
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -79,22 +90,22 @@
 * the device before the next transfer." From spi-dev.h
 */
 static uint16_t delay = 0;
-static const char *device = "/dev/spidev1.0"; ///< the path to the spi device in the dev folder
+static const char *spi10 = "/dev/spidev1.0"; ///< the path to the SPI_1 CS0 in the dev folder
+static const char *spi11 = "/dev/spidev1.1"; ///< the path to the SPI_1 CS1 device in the dev folder
 static uint8_t mode = 3; ///< The mode the spi device will operate in
 static uint8_t bits = 8; ///< the number of bits per word
 static uint32_t speed = 2000000; ///< Defines the frequency for the spi in Hz
-int16_t data[3]; ///< Holds the data received from the device
-float dataG[3];
-float dataX;
-float dataY;
-float dataZ;
-static uint32_t scale = 1000;
+static unsigned char data[10]; ///< Holds the data received from the device
+static unsigned char buffer[10];
+static float dataG[3];
+static int16_t dataRAW[3];
+static float scale = 0.0039;
 
 
 /*******************************************************************************
 *  LOCAL FUNCTION PROTOTYPES
 *******************************************************************************/
-static void SetUpSpi(int*);
+static void SetUpSpi(int*,const char*);
 
 /*******************************************************************************
 * pabort
@@ -106,8 +117,7 @@ static void SetUpSpi(int*);
 * @param[in] s String to be printed to the stderr
 *
 *******************************************************************************/
-static void pabort(const char *s)
-{
+static void pabort(const char *s){
    //Print the string to the stderr
    perror(s);
 
@@ -124,8 +134,7 @@ static void pabort(const char *s)
 * @param[out] fd The file descriptor for the SPI device.
 *
 *******************************************************************************/
-static void SetUpSpi(int *fd)
-{
+static void SetUpSpi(int *fd,const char *device){
    int ret = 0;
 
    *fd = open(device, O_RDWR);
@@ -173,7 +182,7 @@ static void SetUpSpi(int *fd)
 
 printf("spi mode: 0x%x\n", mode);
 printf("bits per word: %d\n", bits);
-printf("max speed: %d Hz (%d KHz)\n", speed, speed/scale);
+printf("max speed: %d Hz (%d KHz)\n", speed, speed/1000);
 }
 
 /*******************************************************************************
@@ -186,113 +195,17 @@ printf("max speed: %d Hz (%d KHz)\n", speed, speed/scale);
 * @param[in] fd Holds the file descriptor.
 *
 *******************************************************************************/
-int Get_X(int fd)
-{
-     int ret;
-     unsigned char tx[4];
-     unsigned char rx[4];
+static void transfer(int fd, unsigned char *buffer, int len){
 
-     tx[0] = (ADXL345_DATAX0_REG | ADXL345_SPI_READ);
-     tx[2] = (ADXL345_DATAX1_REG | ADXL345_SPI_READ);
+    int i,j,ret;
+    unsigned char tx[len];
 
+    for (i = 0; i < len; i++){
+        tx[i]= *(buffer+i);
+    }
+    unsigned char rx[ARRAY_SIZE(tx)];
 
-     //unsigned char rx[ARRAY_SIZE(tx)] = {0, };
-     struct spi_ioc_transfer tr = {
-         .tx_buf = (unsigned long)tx,
-         .rx_buf = (unsigned long)rx,
-         .len = 4,
-         .delay_usecs = delay,
-         .speed_hz = speed,
-         .bits_per_word = bits,
-     };
-    data[0] = 0;
-    ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
-    if (ret == 1)
-       pabort("can't send spi message");
-
-       //shift the bits back to the original position
-        data[0] = rx[3] << 8 | rx[1];
-
-        dataX = data[0]*0.001953;
-        printf("X: %.2f\n",dataX);
-
-    return 0;
-}
-
-int Get_Y(int fd)
-{
-     int ret;
-     unsigned char tx[4];
-     unsigned char rx[4];
-
-     tx[0] = (ADXL345_DATAY0_REG | ADXL345_SPI_READ);
-     tx[2] = (ADXL345_DATAY1_REG | ADXL345_SPI_READ);
-
-
-     //unsigned char rx[ARRAY_SIZE(tx)] = {0, };
-     struct spi_ioc_transfer tr = {
-         .tx_buf = (unsigned long)tx,
-         .rx_buf = (unsigned long)rx,
-         .len = 4,
-         .delay_usecs = delay,
-         .speed_hz = speed,
-         .bits_per_word = bits,
-     };
-    data[0] = 0;
-    ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
-    if (ret == 1)
-       pabort("can't send spi message");
-
-       //shift the bits back to the original position
-        data[0] = rx[3] << 8 | rx[1];
-
-        dataY = data[0]*0.001953;
-        printf("Y: %.2f\n",dataY);
-
-    return 0;
-}
-
-int Get_Z(int fd)
-{
-     int ret;
-     unsigned char tx[4];
-     unsigned char rx[4];
-
-     tx[0] = (ADXL345_DATAZ0_REG | ADXL345_SPI_READ);
-     tx[2] = (ADXL345_DATAZ1_REG | ADXL345_SPI_READ);
-
-
-     //unsigned char rx[ARRAY_SIZE(tx)] = {0, };
-     struct spi_ioc_transfer tr = {
-         .tx_buf = (unsigned long)tx,
-         .rx_buf = (unsigned long)rx,
-         .len = 4,
-         .delay_usecs = delay,
-         .speed_hz = speed,
-         .bits_per_word = bits,
-     };
-    data[0] = 0;
-    ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
-    if (ret == 1)
-       pabort("can't send spi message");
-
-       //shift the bits back to the original position
-        data[0] = rx[3] << 8 | rx[1];
-
-        dataZ = data[0]*0.001953;
-        printf("Z: %.2f\n",dataZ);
-
-    return 0;
-}
-
-int Get_XYZ(int fd)
-{
-     int ret;
-     unsigned char tx[10];
-     tx[0]=0xF2;
-     unsigned char rx[ARRAY_SIZE(tx)] = {0, };
-
-     struct spi_ioc_transfer tr = {
+    struct spi_ioc_transfer tr = {
          .tx_buf = (unsigned long)tx,
          .rx_buf = (unsigned long)rx,
          .len = ARRAY_SIZE(tx),
@@ -301,84 +214,154 @@ int Get_XYZ(int fd)
          .bits_per_word = bits,
      };
 
-    data[0] = 0;
-    data[1] = 0;
-    data[2] = 0;
     ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
     if (ret == 1)
        pabort("can't send spi message");
 
-        data[0] = rx[2]<<8|rx[1];
-        data[1] = rx[4]<<8|rx[3];
-        data[2] = rx[6]<<8|rx[5];
-
-        dataG[0] = data[0]*0.001953;
-        dataG[1] = data[1]*0.001953;
-        dataG[2] = data[2]*0.001953;
-
-        printf("GX: %.2f , GY: %.2f , Z: %.2f\n",dataG[0],dataG[1],dataG[2]);
-
-    return 0;
+    for (j = 0; j < len; j++){
+        data[j] = rx[j];
+    }
 }
 
-signed char Get_DEVID(int fd)
-{
-    int ret;
-    unsigned char tx[2], rx[2];
-    tx[0]= (ADXL345_SPI_READ+ADXL345_DEVID_REG);
+static void getX(int fd){
 
-    struct spi_ioc_transfer tr = {
-        .tx_buf = (unsigned long) tx,
-        .rx_buf = (unsigned long) rx,
-        .len = 2,
-    };
-
-    ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
-    if (ret == 1)
-       pabort("can't send spi message");
-
-    printf("Return value: %d\n",rx[1]);
-
-    return 0;
-}
-
-void ADXL345_begin(int fd)
-{
-    int ret;
-    unsigned char tx[]= {ADXL345_DATA_FORMAT_REG,0x0B,ADXL345_BW_RATE_REG,ADXL345_800HZ,ADXL345_POWER_CTL_REG,0x08};
-    unsigned char rx[ARRAY_SIZE(tx)] = {0, };
-
-    struct spi_ioc_transfer tr = {
-        .tx_buf = (unsigned long)tx,
-        .rx_buf = (unsigned long)rx,
-        .len = ARRAY_SIZE(tx),
-        .delay_usecs = delay,
-        .speed_hz = speed,
-        .bits_per_word = bits,
-    };
-
-    ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr);
-    if (ret == 1)
-       pabort("can't send spi message");
-}
-
-int main( void )
-{
-    int ret = 0;
-    int fd;
-    SetUpSpi(&fd);
-    Get_DEVID(fd);
-    sleep(1);
-    ADXL345_begin(fd);
-    sleep(1);
-    Get_DEVID(fd);
-    while (1) {
-        Get_X(fd);
-        Get_Y(fd);
-        Get_Z(fd);
-        Get_XYZ(fd);
-        //sleep(1);
+    int i;
+    for (i = 0; i < 10; i++){
+        buffer[i]=0;
+        data[i]=0;
     }
 
+    buffer[0] = (ADXL345_SPI_READ | ADXL345_DATAX0_REG);
+    buffer[2] = (ADXL345_SPI_READ | ADXL345_DATAX1_REG);
+
+    transfer(fd,buffer,4);
+
+    dataRAW[0] = *(data+3)<<8|*(data+1);
+    dataG[0] = (float)dataRAW[0]*scale;
+    printf("X: %.2f\n",dataG[0]);
+}
+
+static void getY(int fd){
+
+    int i;
+    for (i = 0; i < 10; i++){
+        buffer[i]=0;
+        data[i]=0;
+    }
+
+    buffer[0] = (ADXL345_SPI_READ | ADXL345_DATAY0_REG);
+    buffer[2] = (ADXL345_SPI_READ | ADXL345_DATAY1_REG);
+
+    transfer(fd,buffer,4);
+
+    dataRAW[1] = *(data+3)<<8|*(data+1);
+    dataG[1] = (float)dataRAW[1]*scale;
+    printf("Y: %.2f\n",dataG[1]);
+
+}
+
+static void getZ(int fd){
+
+    int i;
+    for (i = 0; i < 10; i++){
+        buffer[i]=0;
+        data[i]=0;
+    }
+
+    buffer[0] = (ADXL345_SPI_READ | ADXL345_DATAZ0_REG);
+    buffer[2] = (ADXL345_SPI_READ | ADXL345_DATAZ1_REG);
+
+    transfer(fd,buffer,4);
+
+    dataRAW[2] = *(data+3)<<8|*(data+1);
+    dataG[2] = (float)dataRAW[2]*scale;
+    printf("Z: %.2f\n",dataG[2]);
+}
+
+static void getXYZ(int fd){
+    int i,j;
+    for (i = 0; i < 7; i++){
+        buffer[i]=0;
+    }
+
+    buffer[0] = (ADXL345_SPI_READ | ADXL345_DATAX0_REG | ADXL345_MULTI_BYTE);
+    transfer(fd,buffer,10);
+
+    dataRAW[0] = *(data+2)<<8|*(data+1);
+    dataRAW[1] = *(data+4)<<8|*(data+3);
+    dataRAW[2] = *(data+6)<<8|*(data+5);
+
+    for (j = 0; j < 3; j++){
+        dataG[j] = (float)dataRAW[j]*scale;
+    }
+    printf("G's X: %0.2f, Y: %0.2f, Z: %0.2f\n",dataG[0],dataG[1],dataG[2]);
+}
+
+static void getID(int fd){
+
+    buffer[0] = (ADXL345_SPI_READ | ADXL345_DEVID_REG);
+    buffer[1] = ADXL345_DUMMY;
+    transfer(fd,buffer,2);
+    printf("El Device ID es: %d\n",*(data+1));
+}
+
+static void ADXL345_Setup(int fd){
+
+    buffer[0] = ADXL345_DATA_FORMAT_REG;
+    buffer[1] = (ADXL345_DATA_FORMAT_BASE | ADXL345_16G);
+    buffer[2] = ADXL345_BW_RATE_REG;
+    buffer[3] = ADXL345_6HZ25;
+    transfer(fd,buffer,4);
+}
+
+static void start_stop_measure(int fd, int startbit){
+
+    buffer[0] = ADXL345_POWER_CTL_REG;
+    if (startbit == 1){
+        buffer[1] = (ADXL345_SPI_WRITE | ADXL345_EN_MM);
+    } else{
+        buffer[1] = (ADXL345_SPI_WRITE & ADXL345_DIS_MM);
+    }
+    transfer(fd,buffer,2);
+}
+
+int main( void ){
+    int ret = 0;
+    int fd;
+    SetUpSpi(&fd,spi11);
+    getID(fd);
+    sleep(1);
+    ADXL345_Setup(fd);
+    start_stop_measure(fd,1);
+    printf("START\n");
+    sleep(2);
+
+    while (1){
+        int i,j,k;
+        for (i = 0; i < 1000; i++){
+            //getX(fd);
+            //getY(fd);
+            //getZ(fd);
+            getXYZ(fd);
+        }
+        printf("STOP\n");
+        sleep(10);
+        start_stop_measure(fd,0);
+        for (j = 0; j < 1000; j++){
+            //getX(fd);
+            //getY(fd);
+            //getZ(fd);
+            getXYZ(fd);
+        }
+        start_stop_measure(fd,1);
+        printf("START\n");
+        sleep(2);
+        for (k = 0; k < 1000; k++){
+            //getX(fd);
+            //getY(fd);
+            //getZ(fd);
+            getXYZ(fd);
+        }
+    }
     return ret;
 }
